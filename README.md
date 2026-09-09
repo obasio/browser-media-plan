@@ -112,7 +112,11 @@ const support = encoderSupportFrom({
 
 MP4 can legally carry VP9, AV1 and Opus, but Safari and QuickTime will not play them. MP4 is the container people pick when they mean "plays everywhere"; a remuxed VP9-in-MP4 would be valid, instant, and silent on exactly the devices the choice was made for. Whoever wants to keep VP9 picks WebM, where it is copied instead.
 
-HEVC appears in the *copy* lists so existing iPhone recordings can be remuxed. It is never chosen as an encode target.
+## HEVC
+
+HEVC can be *copied*: an iPhone recording remuxes into MP4 or MKV untouched, which is the fast path and the point of the library. It is never chosen as an encode target — `PREFERRED_VIDEO` picks H.264 for MP4/MOV/MKV and VP9 for WebM.
+
+`canEncode("hevc")` still answers truthfully, because the probe asks the browser about every codec this library names rather than a shorter subset. Whether your browser can encode HEVC is a fact about the machine, and the library reports it instead of guessing.
 
 ## Codec identifiers
 
@@ -126,7 +130,7 @@ npm run build
 npm test
 ```
 
-33 tests, no browser required.
+38 tests, no browser required.
 
 ## License
 
