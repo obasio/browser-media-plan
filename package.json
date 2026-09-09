@@ -61,6 +61,7 @@
     }
   },
   "devDependencies": {
+    "mediabunny": "1.56.1",
     "typescript": "7.0.2"
   },
   "engines": {
