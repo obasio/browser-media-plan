@@ -20,9 +20,21 @@ import type { EncoderSupport } from "./plan.js";
 export type VideoCodecName = "avc" | "hevc" | "vp8" | "vp9" | "av1";
 export type AudioCodecName = "aac" | "opus" | "mp3" | "vorbis" | "flac";
 
-/** Codecs worth asking about. Kept short: each query costs time. */
-const VIDEO_CANDIDATES: readonly VideoCodecName[] = ["avc", "vp9", "av1", "vp8"];
-const AUDIO_CANDIDATES: readonly AudioCodecName[] = ["aac", "opus"];
+/**
+ * Every codec this library names, split by kind.
+ *
+ * These lists do two jobs and it matters that it is the same list for both:
+ * they are what the browser gets asked about, and they are what decides
+ * whether `canEncode` looks at the video or the audio answer. Deriving the
+ * second from a shorter "worth probing" list is how HEVC ended up being
+ * classified as an audio codec.
+ */
+const VIDEO_CODECS: readonly VideoCodecName[] = ["avc", "hevc", "vp8", "vp9", "av1"];
+const AUDIO_CODECS: readonly AudioCodecName[] = ["aac", "opus", "mp3", "vorbis", "flac"];
+
+function isVideoCodec(codec: string): boolean {
+  return (VIDEO_CODECS as readonly string[]).includes(codec);
+}
 
 /** What the browser reported, before any caller policy is applied. */
 export interface RawEncoderSupport {
@@ -79,14 +91,14 @@ async function probeBrowser(): Promise<RawEncoderSupport> {
   const audio = new Set<string>();
 
   await Promise.all([
-    ...VIDEO_CANDIDATES.map(async (codec) => {
+    ...VIDEO_CODECS.map(async (codec) => {
       try {
         if (await bunny.canEncodeVideo(codec, { width: 640, height: 360 })) video.add(codec);
       } catch {
         // An encoder whose very query throws is not available.
       }
     }),
-    ...AUDIO_CANDIDATES.map(async (codec) => {
+    ...AUDIO_CODECS.map(async (codec) => {
       try {
         if (await bunny.canEncodeAudio(codec, { numberOfChannels: 2, sampleRate: 48_000 })) audio.add(codec);
       } catch {
@@ -147,15 +159,21 @@ export async function detectEncoderSupport(options: DetectOptions = {}): Promise
   return encoderSupportFrom(await detectRawEncoderSupport(), options);
 }
 
-/** Convenience: can this one codec be produced here and now? */
+/**
+ * Convenience: can this one codec be produced here and now?
+ *
+ * Which answer is consulted follows from the codec's kind, not from what
+ * happens to be probed. An unknown name reports `false` rather than silently
+ * being treated as audio.
+ */
 export async function canEncode(
   codec: VideoCodecName | AudioCodecName,
   options?: DetectOptions,
 ): Promise<boolean> {
   const support = await detectEncoderSupport(options);
-  return (VIDEO_CANDIDATES as readonly string[]).includes(codec)
-    ? support.videoEncode(codec)
-    : support.audioEncode(codec);
+  if (isVideoCodec(codec)) return support.videoEncode(codec);
+  if ((AUDIO_CODECS as readonly string[]).includes(codec)) return support.audioEncode(codec);
+  return false;
 }
 
 /** Forget the cached browser answers. Mainly useful in tests. */
