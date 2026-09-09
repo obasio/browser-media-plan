@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # The oldest supported runtime and a current one. The library has no
+        # runtime dependencies, so this is really about the test runner and the
+        # module resolution behaving the same on both.
+        node: ["20.x", "22.x"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      # `npm ci` fails if package.json and package-lock.json disagree, which is
+      # exactly the guard we want around reproducible installs.
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm run build
+
+      - run: npm test
+
+      # A published package that is missing a file is only noticed by the first
+      # person who installs it. This catches it here instead.
+      - name: Verify the published file list
+        run: npm pack --dry-run
