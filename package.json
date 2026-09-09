@@ -1,0 +1,41 @@
+{
+  "name": "browser-media-plan",
+  "version": "0.1.0",
+  "description": "Decide remux vs. re-encode for browser media work, and ask the browser what it can actually encode instead of guessing from the user agent.",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "webcodecs",
+    "remux",
+    "transcode",
+    "mediabunny",
+    "video",
+    "browser",
+    "mp4",
+    "webm"
+  ],
+  "exports": {
+    ".": "./src/index.ts",
+    "./plan": "./src/plan.ts",
+    "./capabilities": "./src/capabilities.ts"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/plan.test.mjs"
+  },
+  "peerDependencies": {
+    "mediabunny": ">=1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "mediabunny": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
