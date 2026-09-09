@@ -8,7 +8,8 @@
  *  - `capabilities.ts` asks the browser what it can actually encode. Needs
  *    Mediabunny and a real browser.
  *
- * Import `plan.ts` alone if you already know your encoder support.
+ * Import `browser-media-plan/plan` alone if you already know your encoder
+ * support — that entry point has no dependencies at all.
  */
 
 export {
@@ -18,7 +19,7 @@ export {
   CONTAINER_AUDIO,
   PREFERRED_VIDEO,
   PREFERRED_AUDIO,
-} from "./plan.ts";
+} from "./plan.js";
 
 export type {
   TrackAction,
@@ -28,16 +29,19 @@ export type {
   EncoderSupport,
   Intent,
   MediaPlan,
-} from "./plan.ts";
+} from "./plan.js";
 
 export {
   detectEncoderSupport,
+  detectRawEncoderSupport,
+  encoderSupportFrom,
   canEncode,
   resetEncoderSupport,
-} from "./capabilities.ts";
+} from "./capabilities.js";
 
 export type {
   VideoCodecName,
   AudioCodecName,
+  RawEncoderSupport,
   DetectOptions,
-} from "./capabilities.ts";
+} from "./capabilities.js";

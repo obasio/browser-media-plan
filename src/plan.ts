@@ -11,10 +11,10 @@
  * change touches the pixels themselves (different resolution, different frame
  * rate, rotation baked in) is a re-encode unavoidable.
  *
- * This module only computes. It deliberately has no runtime imports: what the
- * browser can do is handed in as an `EncoderSupport` object. That way the
- * decision can be tested without a browser and without a media file — and this
- * is exactly the logic where a mistake is expensive.
+ * This module only computes. It deliberately has no imports: what the browser
+ * can do is handed in as an `EncoderSupport` object. That way the decision can
+ * be tested without a browser and without a media file — and this is exactly
+ * the logic where a mistake is expensive.
  *
  * ON THE SEPARATION OF COPY AND ENCODE:
  * "copy" means an existing bitstream is written unchanged into a different
@@ -74,7 +74,13 @@ export const PREFERRED_VIDEO: Record<TargetContainer, string> = { mp4: "avc", we
 export const PREFERRED_AUDIO: Record<TargetContainer, string> = { mp4: "aac", webm: "opus", mkv: "aac", mov: "aac" };
 
 export interface TrackProbe {
-  /** Codec identifier as your analysis reports it ("avc", "aac", "vp9", …). */
+  /**
+   * Short codec identifier as your analysis reports it: "avc", "hevc", "vp8",
+   * "vp9", "av1", "aac", "opus", "mp3", "vorbis", "flac".
+   *
+   * Compared case-insensitively. Full codec strings such as "avc1.42E01E" are
+   * not understood — reduce them to the family name first.
+   */
   codec: string | null;
   /** Whether the browser can decode this track at all. */
   canDecode: boolean;
@@ -142,6 +148,17 @@ export interface MediaPlan {
   reasons: string[];
 }
 
+/**
+ * Codec identifiers are compared case-insensitively and trimmed, because
+ * probes disagree about casing and an unnoticed "AVC" would silently turn a
+ * remux into a re-encode.
+ */
+function normalise(codec: string | null | undefined): string | null {
+  if (typeof codec !== "string") return null;
+  const value = codec.trim().toLowerCase();
+  return value.length > 0 ? value : null;
+}
+
 /** The first pixel-touching change found, or null if there is none. */
 function videoReason(changes: Intent["videoChanges"]): string | null {
   if (!changes) return null;
@@ -170,6 +187,8 @@ function audioReason(changes: Intent["audioChanges"]): string | null {
  * The plan for one file.
  *
  * A pure function: same inputs, same result, no side effects.
+ *
+ * @throws if `intent.target` is not one of the four supported containers.
  */
 export function planFor(probe: MediaProbe, intent: Intent, support: EncoderSupport): MediaPlan {
   const reasons: string[] = [];
@@ -177,33 +196,41 @@ export function planFor(probe: MediaProbe, intent: Intent, support: EncoderSuppo
   const videoAllowed = CONTAINER_VIDEO[target];
   const audioAllowed = CONTAINER_AUDIO[target];
 
+  // A caller coming from plain JavaScript can pass anything. Failing here with
+  // a readable message beats a TypeError three lines down.
+  if (!videoAllowed || !audioAllowed) {
+    throw new Error(`Unsupported target container: ${String(target)}. Expected one of mp4, webm, mkv, mov.`);
+  }
+
   // --- Video track ----------------------------------------------------
   let video: TrackAction;
   let videoTargetCodec: string | undefined;
+  const videoCodec = normalise(probe.video?.codec);
 
   if (intent.dropVideo) {
     video = "discard";
     reasons.push("video_discarded_by_user");
-  } else if (!probe.video?.codec) {
+  } else if (!videoCodec) {
     video = "none";
   } else {
     const reason = videoReason(intent.videoChanges);
-    const fitsContainer = videoAllowed.includes(probe.video.codec);
+    const fitsContainer = videoAllowed.includes(videoCodec);
     if (!reason && fitsContainer) {
       // The regular case, and the whole point of this module: the existing
-      // bitstream moves into the new container unchanged.
+      // bitstream moves into the new container unchanged. Note that copying
+      // does not require a decoder — `canDecode` is irrelevant here.
       video = "copy";
-      reasons.push(`video_copy:${probe.video.codec}`);
+      reasons.push(`video_copy:${videoCodec}`);
     } else {
       const targetCodec = PREFERRED_VIDEO[target];
-      if (!probe.video.canDecode) {
+      if (!probe.video?.canDecode) {
         // Re-encoding presupposes being able to decode first.
         video = "unsupported";
-        reasons.push(`video_cannot_decode:${probe.video.codec}`);
+        reasons.push(`video_cannot_decode:${videoCodec}`);
       } else if (support.videoEncode(targetCodec)) {
         video = "encode";
         videoTargetCodec = targetCodec;
-        reasons.push(reason ? `video_encode:${reason}` : `video_encode:container_mismatch:${probe.video.codec}`);
+        reasons.push(reason ? `video_encode:${reason}` : `video_encode:container_mismatch:${videoCodec}`);
       } else {
         video = "unsupported";
         reasons.push(`video_encoder_missing:${targetCodec}`);
@@ -214,27 +241,28 @@ export function planFor(probe: MediaProbe, intent: Intent, support: EncoderSuppo
   // --- Audio track ----------------------------------------------------
   let audio: TrackAction;
   let audioTargetCodec: string | undefined;
+  const audioCodec = normalise(probe.audio?.codec);
 
   if (intent.dropAudio) {
     audio = "discard";
     reasons.push("audio_discarded_by_user");
-  } else if (!probe.audio?.codec) {
+  } else if (!audioCodec) {
     audio = "none";
   } else {
     const reason = audioReason(intent.audioChanges);
-    const fitsContainer = audioAllowed.includes(probe.audio.codec);
+    const fitsContainer = audioAllowed.includes(audioCodec);
     if (!reason && fitsContainer) {
       audio = "copy";
-      reasons.push(`audio_copy:${probe.audio.codec}`);
+      reasons.push(`audio_copy:${audioCodec}`);
     } else {
       const targetCodec = PREFERRED_AUDIO[target];
-      if (!probe.audio.canDecode) {
+      if (!probe.audio?.canDecode) {
         audio = "unsupported";
-        reasons.push(`audio_cannot_decode:${probe.audio.codec}`);
+        reasons.push(`audio_cannot_decode:${audioCodec}`);
       } else if (support.audioEncode(targetCodec)) {
         audio = "encode";
         audioTargetCodec = targetCodec;
-        reasons.push(reason ? `audio_encode:${reason}` : `audio_encode:container_mismatch:${probe.audio.codec}`);
+        reasons.push(reason ? `audio_encode:${reason}` : `audio_encode:container_mismatch:${audioCodec}`);
       } else {
         audio = "unsupported";
         reasons.push(`audio_encoder_missing:${targetCodec}`);
@@ -243,14 +271,21 @@ export function planFor(probe: MediaProbe, intent: Intent, support: EncoderSuppo
   }
 
   // --- Overall verdict ------------------------------------------------
-  const impossible = video === "unsupported" || audio === "unsupported";
+  const blocked = video === "unsupported" || audio === "unsupported";
+
+  // A container with no tracks in it is not a media file. This happens when a
+  // caller drops both tracks, or hands in a probe that found neither — and it
+  // is better caught here than written to disk as an unplayable file.
+  const empty = (video === "none" || video === "discard") && (audio === "none" || audio === "discard");
+  if (empty && !blocked) reasons.push("no_tracks_left");
+
   // "remux" only when no encoder runs at all. A copied video track next to a
   // recomputed audio track is not a remux — an encoder runs there, and no
   // interface built on this should claim "without quality loss".
-  const remux = !impossible && video !== "encode" && audio !== "encode";
+  const remux = !blocked && !empty && video !== "encode" && audio !== "encode";
 
   return {
-    decision: impossible ? "impossible" : remux ? "remux" : "reencode",
+    decision: blocked || empty ? "impossible" : remux ? "remux" : "reencode",
     video,
     audio,
     videoTargetCodec,
