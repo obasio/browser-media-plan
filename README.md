@@ -1,12 +1,20 @@
 # browser-media-plan
 
-Two small pieces of media logic that are easy to get wrong in the browser.
+Two small pieces of media logic that are easy to get wrong in the browser: deciding whether a file needs re-encoding at all, and finding out what the browser can actually encode.
+
+No runtime dependencies. `planFor` is a pure function you can test without a browser and without a media file.
+
+## Install
+
+```
+npm install browser-media-plan
+```
+
+`mediabunny` is an optional peer dependency, needed only by the capability probe. Import `browser-media-plan/plan` on its own if you already know your encoder support.
 
 ## 1. Remux first
 
 A `.mov` holding H.264 video and AAC audio already contains exactly the bitstreams that would sit inside an `.mp4`. Turning it into MP4 is a container rewrite, not a recomputation of pixels. Re-encoding it costs minutes and quality and buys nothing.
-
-The rule this library implements, in this order:
 
 ```
 REMUX FIRST → COPY CODECS → RE-ENCODE ONLY IF REQUIRED
@@ -17,32 +25,34 @@ A re-encode happens only when the change actually touches the pixels — differe
 ```ts
 import { planFor, isLossless } from "browser-media-plan/plan";
 
-const plan = planFor(
-  {
-    container: "mov",
-    video: { codec: "avc", canDecode: true },
-    audio: { codec: "aac", canDecode: true },
-  },
-  { target: "mp4" },
-  { videoEncode: () => true, audioEncode: () => true },
-);
+const probe = {
+  container: "mov",
+  video: { codec: "avc", canDecode: true },
+  audio: { codec: "aac", canDecode: true },
+};
+const support = { videoEncode: () => true, audioEncode: () => true };
 
-plan.decision;   // "remux"
-plan.video;      // "copy"
-plan.audio;      // "copy"
-isLossless(plan) // true — safe to tell a user "no quality loss"
+const plan = planFor(probe, { target: "mp4" }, support);
+
+plan.decision;    // "remux"
+plan.video;       // "copy"
+plan.audio;       // "copy"
+isLossless(plan); // true — safe to tell a user "no quality loss"
 ```
 
-Ask for a resolution change and the same file becomes:
+### Transform, and only what has to change
 
 ```ts
 planFor(probe, { target: "mp4", videoChanges: { resolution: true } }, support);
-// decision: "reencode", video: "encode", videoTargetCodec: "avc", audio: "copy"
+// decision: "reencode"
+// video: "encode", videoTargetCodec: "avc"
+// audio: "copy"            ← untouched
+// reasons: ["video_encode:resolution_change", "audio_copy:aac"]
 ```
 
-Note what stays true there: the audio is still copied. Recomputing a video track is no reason to recompute the sound.
+Recomputing a video track is no reason to recompute the sound. The two tracks are decided independently, and `reasons` records why each one came out the way it did.
 
-`planFor` is a pure function with no imports. It can be tested without a browser and without a media file, which is the point — this is the logic where a mistake is expensive.
+`decision` is `"impossible"` when a track can be neither copied nor produced — a missing encoder, a codec the browser cannot decode, or a request that would leave the file with no tracks at all.
 
 ## 2. Never infer codec support from the user agent
 
@@ -60,9 +70,11 @@ if (plan.decision === "impossible") {
 }
 ```
 
-The result is cached for the session, because the query costs time and the answer does not change.
+The browser's answers are cached for the session, because the query costs time and the answer does not change while the page is open.
 
-If your project must not *produce* a particular codec — for licensing, platform policy, or an output-format decision — gate it:
+### Codec policy
+
+If your project must not *produce* a particular codec, gate it per call:
 
 ```ts
 const support = await detectEncoderSupport({
@@ -70,7 +82,22 @@ const support = await detectEncoderSupport({
 });
 ```
 
-Anything that would need a blocked encoder then comes back as `impossible` rather than silently producing a file you did not want. Remuxing an existing bitstream is unaffected: no encoder runs there.
+Anything that would need a blocked encoder then comes back as `"impossible"` rather than quietly producing a file you did not want. Remuxing an existing bitstream is unaffected: no encoder runs there, so `planFor` may still copy a codec this gate blocks.
+
+The policy is applied per call and is never cached. Two calls with different policies in the same session do not affect each other.
+
+> **The policy is a technical switch, not a legal clearance.** Blocking a codec here grants you no rights to the ones you leave enabled, and enabling one creates no obligation. Codec licensing is a separate question and this library takes no position on it.
+
+If you already know your capabilities — from your own probe, or in a test — compose them directly, with no browser involved:
+
+```ts
+import { encoderSupportFrom } from "browser-media-plan/capabilities";
+
+const support = encoderSupportFrom({
+  video: new Set(["avc", "vp9"]),
+  audio: new Set(["aac", "opus"]),
+});
+```
 
 ## Container rules
 
@@ -87,21 +114,19 @@ MP4 can legally carry VP9, AV1 and Opus, but Safari and QuickTime will not play 
 
 HEVC appears in the *copy* lists so existing iPhone recordings can be remuxed. It is never chosen as an encode target.
 
-## Install
+## Codec identifiers
+
+Pass short family names: `avc`, `hevc`, `vp8`, `vp9`, `av1`, `aac`, `opus`, `mp3`, `vorbis`, `flac`. Comparison is case-insensitive and trims whitespace. Full codec strings such as `avc1.42E01E` are not understood — reduce them to the family name first.
+
+## Development
 
 ```
-npm install browser-media-plan mediabunny
-```
-
-`mediabunny` is an optional peer dependency, needed only by `capabilities`. Import `browser-media-plan/plan` on its own if you already know your encoder support — that entry point has no dependencies at all.
-
-## Tests
-
-```
+npm run typecheck
+npm run build
 npm test
 ```
 
-13 tests, no browser required.
+33 tests, no browser required.
 
 ## License
 

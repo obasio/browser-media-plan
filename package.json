@@ -4,28 +4,53 @@
   "description": "Decide remux vs. re-encode for browser media work, and ask the browser what it can actually encode instead of guessing from the user agent.",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/obasio/browser-media-plan.git"
+  },
+  "homepage": "https://github.com/obasio/browser-media-plan#readme",
+  "bugs": {
+    "url": "https://github.com/obasio/browser-media-plan/issues"
+  },
   "keywords": [
     "webcodecs",
     "remux",
     "transcode",
     "mediabunny",
     "video",
+    "audio",
     "browser",
     "mp4",
     "webm"
   ],
+  "sideEffects": false,
   "exports": {
-    ".": "./src/index.ts",
-    "./plan": "./src/plan.ts",
-    "./capabilities": "./src/capabilities.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./plan": {
+      "types": "./dist/plan.d.ts",
+      "default": "./dist/plan.js"
+    },
+    "./capabilities": {
+      "types": "./dist/capabilities.d.ts",
+      "default": "./dist/capabilities.js"
+    }
   },
+  "types": "./dist/index.d.ts",
   "files": [
+    "dist",
     "src",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test test/plan.test.mjs"
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "pretest": "npm run build",
+    "test": "node --test test/plan.test.mjs test/capabilities.test.mjs",
+    "prepublishOnly": "npm run typecheck && npm test"
   },
   "peerDependencies": {
     "mediabunny": ">=1.0.0"
@@ -35,7 +60,10 @@
       "optional": true
     }
   },
+  "devDependencies": {
+    "typescript": "7.0.2"
+  },
   "engines": {
-    "node": ">=22"
+    "node": ">=20"
   }
 }

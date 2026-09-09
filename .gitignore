@@ -1,2 +1,30 @@
+# Dependencies
 node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# Secrets and local configuration — never commit these
+.env
+.env.*
+!.env.example
+.npmrc
+*.pem
+*.key
+*.p12
+id_rsa*
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
 *.log
+npm-debug.log*
