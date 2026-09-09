@@ -10,7 +10,7 @@ import test from "node:test";
  * function and is checked here without a browser and without a media file.
  */
 
-const plan = await import("../src/plan.ts");
+const plan = await import("../dist/plan.js");
 
 /** A browser that can do everything — the normal case on a desktop. */
 const canDoAll = { videoEncode: () => true, audioEncode: () => true };
@@ -147,4 +147,79 @@ test("the reasons are machine-readable, not just human-readable", () => {
   const p = plan.planFor(probe("avc", "aac"), { target: "mp4", videoChanges: { resolution: true } }, canDoAll);
   assert.ok(p.reasons.includes("video_encode:resolution_change"));
   assert.ok(p.reasons.includes("audio_copy:aac"));
+});
+
+test("codec identifiers are compared case-insensitively and trimmed", () => {
+  // Probes disagree about casing. An unnoticed "AVC" would silently turn a
+  // remux into a re-encode - the exact mistake this library exists to avoid.
+  const p = plan.planFor(probe(" AVC ", "AAC"), { target: "mp4" }, canDoAll);
+  assert.equal(p.decision, "remux");
+  assert.equal(p.video, "copy");
+  assert.equal(p.audio, "copy");
+  assert.ok(p.reasons.includes("video_copy:avc"));
+});
+
+test("an empty codec string counts as no track, not as an unknown codec", () => {
+  const p = plan.planFor(probe("   ", "aac"), { target: "mp4" }, canDoAll);
+  assert.equal(p.video, "none");
+  assert.equal(p.audio, "copy");
+  assert.equal(p.decision, "remux");
+});
+
+test("copying does not require a decoder", () => {
+  // The bitstream is moved, not read. A browser that cannot decode HEVC can
+  // still remux an HEVC file into MP4.
+  const p = plan.planFor(probe("hevc", "aac", false), { target: "mp4" }, canDoAll);
+  assert.equal(p.decision, "remux");
+  assert.equal(p.video, "copy");
+});
+
+test("a file with no tracks at all cannot be produced", () => {
+  const p = plan.planFor(probe(null, null), { target: "mp4" }, canDoAll);
+  assert.equal(p.decision, "impossible");
+  assert.ok(p.reasons.includes("no_tracks_left"));
+});
+
+test("dropping both tracks cannot be produced either", () => {
+  const p = plan.planFor(probe("avc", "aac"), { target: "mp4", dropVideo: true, dropAudio: true }, canDoAll);
+  assert.equal(p.decision, "impossible");
+  assert.equal(p.video, "discard");
+  assert.equal(p.audio, "discard");
+  assert.ok(p.reasons.includes("no_tracks_left"));
+});
+
+test("dropping the video of a video-only file leaves nothing", () => {
+  const p = plan.planFor(probe("avc", null), { target: "mp4", dropVideo: true }, canDoAll);
+  assert.equal(p.decision, "impossible");
+  assert.ok(p.reasons.includes("no_tracks_left"));
+});
+
+test("an unknown target container fails with a readable message", () => {
+  assert.throws(
+    () => plan.planFor(probe("avc", "aac"), { target: "avi" }, canDoAll),
+    /Unsupported target container: avi/,
+  );
+});
+
+test("a missing audio encoder does not sink a file whose audio only needs copying", () => {
+  const ohneAac = { videoEncode: () => true, audioEncode: (c) => c !== "aac" };
+  const p = plan.planFor(probe("avc", "aac"), { target: "mp4" }, ohneAac);
+  assert.equal(p.decision, "remux");
+  assert.equal(p.audio, "copy");
+});
+
+test("MKV takes almost anything without recomputing", () => {
+  for (const [v, a] of [["avc", "aac"], ["hevc", "opus"], ["vp9", "vorbis"], ["av1", "flac"], ["vp8", "mp3"]]) {
+    const p = plan.planFor(probe(v, a), { target: "mkv" }, canDoAll);
+    assert.equal(p.decision, "remux", `${v}/${a} should remux into MKV`);
+  }
+});
+
+test("the video target codec is only set when a video is actually produced", () => {
+  const kopiert = plan.planFor(probe("avc", "aac"), { target: "mp4" }, canDoAll);
+  assert.equal(kopiert.videoTargetCodec, undefined);
+  assert.equal(kopiert.audioTargetCodec, undefined);
+
+  const verworfen = plan.planFor(probe("avc", "aac"), { target: "mp4", dropVideo: true }, canDoAll);
+  assert.equal(verworfen.videoTargetCodec, undefined);
 });
