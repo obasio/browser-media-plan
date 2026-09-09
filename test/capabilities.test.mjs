@@ -132,6 +132,55 @@ test("a failed probe is not cached as an answer", async () => {
   assert.equal(calls, 2);
 });
 
+test("HEVC is asked about as a video codec, not an audio one", async () => {
+  // The bug: canEncode fell through to the audio branch for any codec that was
+  // not in the shorter probe list, so HEVC was answered from the audio set. It
+  // returned false by accident, which is the right answer for the wrong reason
+  // and would have flipped the moment the probe list changed.
+  const [probe] = countingProbe(raw(["avc", "hevc"], ["aac"]));
+  caps.__setEncoderProbe(probe);
+
+  assert.equal(await caps.canEncode("hevc"), true);
+
+  const support = await caps.detectEncoderSupport();
+  assert.equal(support.videoEncode("hevc"), true);
+  assert.equal(support.audioEncode("hevc"), false, "HEVC must never be looked up in the audio set");
+});
+
+test("a browser without an HEVC encoder answers honestly", async () => {
+  const [probe] = countingProbe(raw(["avc"], ["aac"]));
+  caps.__setEncoderProbe(probe);
+  assert.equal(await caps.canEncode("hevc"), false);
+});
+
+test("every declared codec can actually be asked about", async () => {
+  // The type says these names are askable. If the probe never gathered them,
+  // the answer would be a permanent false regardless of the browser.
+  const alle = ["avc", "hevc", "vp8", "vp9", "av1", "aac", "opus", "mp3", "vorbis", "flac"];
+  const [probe] = countingProbe(raw(["avc", "hevc", "vp8", "vp9", "av1"], ["aac", "opus", "mp3", "vorbis", "flac"]));
+  caps.__setEncoderProbe(probe);
+
+  for (const codec of alle) {
+    assert.equal(await caps.canEncode(codec), true, `${codec} should be answerable`);
+  }
+});
+
+test("an unknown codec name is false, not silently audio", async () => {
+  const [probe] = countingProbe(raw(["avc"], ["aac"]));
+  caps.__setEncoderProbe(probe);
+  assert.equal(await caps.canEncode("prores"), false);
+  assert.equal(await caps.canEncode("nonsense"), false);
+});
+
+test("the video and audio sets stay separate", async () => {
+  // A name in the wrong set must not leak across.
+  const [probe] = countingProbe(raw(["avc"], ["avc"]));
+  caps.__setEncoderProbe(probe);
+  const support = await caps.detectEncoderSupport();
+  assert.equal(support.videoEncode("avc"), true);
+  assert.equal(support.audioEncode("aac"), false);
+});
+
 test("the seam is released again", () => {
   // Leaving the override in place would make every later import lie.
   caps.__setEncoderProbe(null);
